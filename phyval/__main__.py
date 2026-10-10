@@ -146,8 +146,19 @@ def cmd_run_build(args, cfg, paths):
         _need(paths.data / f, "python -m phyval all --quick")
     for f in ("triage.joblib", "selection.joblib", "anomaly.joblib"):
         _need(paths.models / f, "python -m phyval all --quick")
+    if args.fault == "random":
+        # Nightly mode: a reproducible "surprise" build. The seed (e.g. the date) decides
+        # whether there is a bug, which one, and how severe.
+        rng = np.random.default_rng(args.seed)
+        names = list(FAULTS)
+        args.fault = names[int(rng.integers(len(names)))]
+        args.severity = 0.0 if args.fault == "none" else float(np.round(rng.uniform(0.1, 1.0), 2))
+        if not args.changed:
+            extra = rng.choice(cfg["modules"], int(rng.integers(0, 3)), replace=False).tolist()
+            args.changed = ",".join(sorted(set(extra + [cfg["fault_module"].get(args.fault, "scheduler")])))
+        log(f"Random build: injected fault hidden from the models (revealed in the report).")
     if args.fault not in FAULTS:
-        sys.exit(f"Unknown fault '{args.fault}'. Choose from: {', '.join(FAULTS)}")
+        sys.exit(f"Unknown fault '{args.fault}'. Choose from: {', '.join(FAULTS)} or random")
 
     qual = pd.read_csv(paths.data / "test_plan_qualified.csv")
     suite = qual[qual["qualified"]]
@@ -234,6 +245,26 @@ def cmd_triage_log(args, cfg, paths):
         log(f"   {classes[j]:18s} {100 * tot[j]:5.1f}%")
 
 
+def cmd_index(args, cfg, paths):
+    """Write reports/index.html: a landing page linking every report (used for GitHub Pages)."""
+    import html as _h
+    from .report.html import page
+    reports = sorted(paths.reports.glob("*.html"), key=lambda p: p.stat().st_mtime, reverse=True)
+    reports = [r for r in reports if r.name != "index.html"]
+    rows = []
+    for r in reports:
+        kind = "Regression report" if r.name.startswith("regression") else "Build report"
+        when = datetime.fromtimestamp(r.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+        rows.append(f"<tr><td><a href='{_h.escape(r.name)}'>{_h.escape(r.stem)}</a></td><td>{kind}</td><td>{when}</td></tr>")
+    body = ("<p>Generated automatically by the PHYVAL CI/CD pipeline.</p>"
+            "<div class='wrap'><table><thead><tr><th>Report</th><th>Type</th><th>Generated (UTC)</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table></div>")
+    out = paths.reports / "index.html"
+    out.write_text(page("PHYVAL Validation Reports", f"Last updated {datetime.now():%Y-%m-%d %H:%M} UTC", body),
+                   encoding="utf-8")
+    log(f"Index: {out} ({len(reports)} reports)")
+
+
 def cmd_faults(args, cfg, paths):
     from .phy.ofdm import FAULTS
     for k, v in FAULTS.items():
@@ -257,7 +288,7 @@ def main(argv=None):
     rp.add_argument("--email-to", default=None)
 
     b = sub.add_parser("run-build", help="validate one new build end to end")
-    b.add_argument("--fault", default="none", help="bug to inject (see `faults`); default none")
+    b.add_argument("--fault", default="none", help="bug to inject (see `faults`), or `random`; default none")
     b.add_argument("--severity", type=float, default=0.6, help="bug severity 0..1 (default 0.6)")
     b.add_argument("--changed", default="", help="comma-separated changed modules (default: the bug's module)")
     b.add_argument("--budget", type=float, default=1.0, help="fraction of full-suite test time to spend (default 1.0)")
@@ -268,6 +299,7 @@ def main(argv=None):
     t = sub.add_parser("triage-log", help="triage a raw build log file with the NLP model")
     t.add_argument("--log", required=True)
     sub.add_parser("faults", help="list the injectable faults")
+    sub.add_parser("index", help="write an index.html linking all reports")
 
     args = p.parse_args(argv)
     cfg = load_config(args.config)
@@ -276,7 +308,7 @@ def main(argv=None):
     {"all": cmd_all, "qualify": lambda a, c, p_: stage_qualify(c, p_),
      "regress": lambda a, c, p_: stage_regress(c, p_, a.quick), "analyze": lambda a, c, p_: stage_analyze(c, p_),
      "report": lambda a, c, p_: stage_report(c, p_, a.email_to), "run-build": cmd_run_build,
-     "triage-log": cmd_triage_log, "faults": cmd_faults}[args.cmd](args, cfg, paths)
+     "triage-log": cmd_triage_log, "faults": cmd_faults, "index": cmd_index}[args.cmd](args, cfg, paths)
 
 
 if __name__ == "__main__":

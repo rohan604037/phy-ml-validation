@@ -124,6 +124,7 @@ It prints the predicted root cause and writes:
 | `run-build --fault iq_imbalance --severity 0.1` | A quiet bug: very few failures, harder to triage |
 | `run-build --fault stale_channel --changed telemetry --budget 0.2` | A misleading changed-module list: selection still finds failing tests, because historically fragile tests rank high. Compare with `--changed rx_chest` |
 | `run-build --fault timing_offset --budget 1.0` | Full suite + anomaly check |
+| `run-build --fault random --seed 123` | A surprise build: the bug is hidden until you open the report |
 
 **Triage a raw log file using text only**
 
@@ -156,24 +157,63 @@ python -m phyval all --quick
 python -m pytest
 ```
 
-## Step 9: put it on GitHub with automatic nightly runs (CI/CD)
+## Step 9: put it on GitHub with automatic nightly runs and a live report website (CI/CD)
 
-1. Create an empty repository on GitHub, for example `phy-ml-validation`, without a README.
-2. In the project folder:
-   ```
-   git init
-   git add .
-   git commit -m "PHY ML validation framework"
-   git branch -M main
-   git remote add origin https://github.com/<your-username>/phy-ml-validation.git
-   git push -u origin main
-   ```
-3. Open the repository's **Actions** tab. The workflow `.github/workflows/regression.yml` runs
-   automatically on every push. It runs the unit tests, the full pipeline and a demo build.
-4. Click a finished run, then download **phyval-reports** under *Artifacts* to get the HTML reports.
-5. It also runs every night at 02:00 IST, and you can start it manually with **Run workflow**.
+**A. Create the repository** on github.com: `+` → *New repository*, name `phy-ml-validation`, set it to
+**Public**, and do not add a README. A free account can publish a website only from a public repository.
 
-`output/` and `.venv/` are listed in `.gitignore`, so generated files are not committed.
+**B. Install Git** if `git --version` fails (<https://git-scm.com/download/win>, all defaults). Then set your
+name once:
+```
+git config --global user.name "Rohan R"
+git config --global user.email "rohanraghu610@gmail.com"
+```
+
+**C. Upload the project** from the project folder:
+```
+git init
+git add .
+git commit -m "PHY ML validation framework"
+git branch -M main
+git remote add origin https://github.com/rohan604037/phy-ml-validation.git
+git push -u origin main
+```
+The first push opens a browser window to sign in to GitHub.
+
+**D. Turn on the website (one time)**: repository → **Settings** → **Pages** → under *Build and deployment*,
+set **Source** to **GitHub Actions**.
+
+**E. Run it once now**: **Actions** tab → *phy-ml-regression* → **Run workflow** → **Run workflow**. Wait about
+3–4 minutes for both jobs (*regression*, *publish-website*) to turn green.
+
+**F. Open your live reports** at `https://rohan604037.github.io/phy-ml-validation/`. The index page links to
+the regression report, tonight's nightly build report and the test-selection demo report.
+
+### What happens automatically after that
+
+| When | What runs | Result |
+|---|---|---|
+| Every push | Unit tests + full pipeline + reports | Website updated; a red cross on the commit if anything broke |
+| Every night, 02:00 IST | The same, plus a **new random build** whose bug is chosen from the date | Website shows that night's build report |
+| Anytime | *Run workflow* button | Same as the nightly run |
+
+- **Website:** always shows the **latest** run; each run replaces the previous one.
+- **History:** every run's reports and data are saved for 90 days. Open Actions → a run → *Artifacts* →
+  `phyval-reports-<number>`.
+- **What changes each night:** the regression history and its ML results are seeded, so they are identical
+  every night. That is deliberate, because it proves the framework still reproduces its own results. What
+  changes is the nightly build: a different bug (or no bug) and severity each date, which is then triaged blind.
+
+### Things GitHub does that you should know
+
+- **Pausing:** GitHub pauses scheduled runs in a public repository after **60 days without any commit**.
+  Push any small change, or press *Enable workflow* in the Actions tab, to resume.
+- **Timing:** scheduled runs can start a few minutes to an hour late when GitHub is busy.
+- **Cost:** public repositories get Actions and Pages free.
+- **Failure emails:** GitHub emails you if a run fails (Settings → Notifications → Actions).
+
+`output/` and `.venv/` are listed in `.gitignore`, so generated files never get committed; the website is
+built fresh on GitHub each run.
 
 ## Step 10 (optional): actually send the report by email
 

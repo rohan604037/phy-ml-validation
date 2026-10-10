@@ -1,15 +1,33 @@
 # CI/CD (Continuous Integration / Continuous Delivery) pipeline.
-# On every push and pull request, and every night at 02:00 IST, GitHub runs the
-# unit tests, the full ML validation pipeline and a demo build, then publishes the
-# HTML reports as a downloadable artifact (Actions tab -> run -> Artifacts).
+#
+# When it runs:
+#   * every push and pull request  -> unit tests + full pipeline (catches code that breaks the framework)
+#   * every night at 02:00 IST     -> the same, plus a NEW random "nightly build" whose bug (if any) is
+#                                     chosen from the date, so every night's report is different
+#   * manually                     -> Actions tab -> phy-ml-regression -> "Run workflow"
+#
+# Where results go:
+#   * a live website (GitHub Pages), replaced on every run from the main branch:
+#       https://<your-username>.github.io/phy-ml-validation/
+#   * a downloadable zip of reports + data under each run's "Artifacts" (kept 90 days),
+#     which is the history of past nights
 name: phy-ml-regression
 
 on:
   push:
   pull_request:
-  workflow_dispatch:          # "Run workflow" button in the Actions tab
+  workflow_dispatch:
   schedule:
-    - cron: "30 20 * * *"     # 20:30 UTC = 02:00 IST nightly regression
+    - cron: "30 20 * * *"     # 20:30 UTC = 02:00 IST
+
+permissions:
+  contents: read
+  pages: write                # needed to publish the website
+  id-token: write             # needed to publish the website
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   regression:
@@ -32,16 +50,42 @@ jobs:
       - name: Full validation pipeline
         run: python -m phyval all --quick
 
-      - name: Validate a new build with ML test selection
-        run: python -m phyval run-build --fault cfo_uncorrected --severity 0.6 --changed rx_sync --budget 0.3 --seed 7 --build-id CI_DEMO
+      - name: Nightly build (random bug chosen from today's date)
+        run: |
+          TODAY=$(TZ=Asia/Kolkata date +%Y%m%d)
+          python -m phyval run-build --fault random --seed "$TODAY" --budget 1.0 --build-id "NIGHTLY_$TODAY"
 
-      - name: Publish reports
+      - name: Build validated with ML test selection (30% time budget)
+        run: python -m phyval run-build --fault cfo_uncorrected --severity 0.6 --changed rx_sync --budget 0.3 --seed 7 --build-id CI_SELECTION_DEMO
+
+      - name: Write the report index page
+        run: python -m phyval index
+
+      - name: Save reports and data as a downloadable artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phyval-reports
+          name: phyval-reports-${{ github.run_number }}
           path: |
             output/reports/
             output/data/*.json
             output/data/*.csv
-          retention-days: 14
+          retention-days: 90
+
+      - name: Prepare website files
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: output/reports
+
+  publish-website:
+    if: github.ref == 'refs/heads/main'
+    needs: regression
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

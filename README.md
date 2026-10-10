@@ -107,6 +107,8 @@ Predicted root cause: stale_channel (confidence 72%)
 | `qualify` / `regress` / `analyze` / `report` | Run one stage at a time |
 | `run-build --fault F --severity S --changed M1,M2 --budget B` | Validate one new build: ML-select tests, run them, triage, report |
 | `triage-log --log FILE` | Triage a raw log file with the NLP model only |
+| `run-build --fault random --seed N` | A surprise build: bug chosen by the seed, revealed only in the report |
+| `index` | Write `output/reports/index.html` linking every report (used for the website) |
 | `faults` | List the injectable bugs |
 
 Run any command with `--help` to see every option. Use `--out DIR` to write somewhere other than `output/`.
@@ -125,7 +127,7 @@ phyval/ml/anomaly.py         Isolation Forest build-health monitoring
 phyval/report/               HTML reports, PHY plots, email publication
 phyval/__main__.py           command-line interface
 tests/                       33 pytest unit tests
-.github/workflows/           CI/CD: tests + pipeline on every push and nightly, reports as artifacts
+.github/workflows/           CI/CD: tests + pipeline on every push and nightly, live report website (GitHub Pages)
 docs/                        how to run, how it works, resume and interview notes
 ```
 
