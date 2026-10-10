@@ -1,0 +1,47 @@
+# CI/CD (Continuous Integration / Continuous Delivery) pipeline.
+# On every push and pull request, and every night at 02:00 IST, GitHub runs the
+# unit tests, the full ML validation pipeline and a demo build, then publishes the
+# HTML reports as a downloadable artifact (Actions tab -> run -> Artifacts).
+name: phy-ml-regression
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:          # "Run workflow" button in the Actions tab
+  schedule:
+    - cron: "30 20 * * *"     # 20:30 UTC = 02:00 IST nightly regression
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Unit tests
+        run: python -m pytest
+
+      - name: Full validation pipeline
+        run: python -m phyval all --quick
+
+      - name: Validate a new build with ML test selection
+        run: python -m phyval run-build --fault cfo_uncorrected --severity 0.6 --changed rx_sync --budget 0.3 --seed 7 --build-id CI_DEMO
+
+      - name: Publish reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phyval-reports
+          path: |
+            output/reports/
+            output/data/*.json
+            output/data/*.csv
+          retention-days: 14

@@ -1,0 +1,70 @@
+# =============================================================================
+# PHYVAL test plan (the "specification" the automation framework is driven by)
+#
+# Every combination in `sweep` becomes one candidate test case. The framework
+# then *qualifies* each candidate against the golden (bug-free) design and keeps
+# only the ones the golden design passes reliably.
+#
+# Edit this file to change what gets tested - no code changes needed.
+# =============================================================================
+
+phy:
+  n_data_symbols: 20          # OFDM data symbols per test frame
+
+# Pass/fail limits. EVM (Error Vector Magnitude) limits follow the style of
+# 3GPP LTE transmitter requirements; BER = Bit Error Rate.
+limits:
+  evm_pct:
+    BPSK: 25.0
+    QPSK: 17.5
+    QAM16: 12.5
+    QAM64: 8.0
+  ber_max: 1.0e-3
+
+# Test-parameter sweep
+sweep:
+  modulation: [BPSK, QPSK, QAM16, QAM64]
+  snr_db: [15, 20, 25, 30, 35, 40]
+  channel: [AWGN, PED_A, VEH_A]
+  cfo: [0.0, 0.15, 0.35]      # Carrier Frequency Offset, fraction of subcarrier spacing
+
+# Channel models (tap delays in samples, relative tap powers in dB).
+# Names follow the ITU Pedestrian-A / Vehicular-A profiles, scaled to this numerology.
+channels:
+  AWGN:  {delays: [0],              powers_db: [0]}
+  PED_A: {delays: [0, 1, 3],        powers_db: [0, -6, -12]}
+  VEH_A: {delays: [0, 2, 5, 9, 13], powers_db: [0, -2, -5, -8, -12]}
+
+# Qualification: a candidate test is kept only if the golden design passes it
+# on every one of `golden_runs` independent noise realisations.
+qualification:
+  golden_runs: 6
+
+# Lab cost model: how long each test would take on real equipment (seconds).
+# Used to measure how much execution time ML test selection saves.
+cost_model:
+  base_s: 20
+  channel_factor: {AWGN: 1.0, PED_A: 1.6, VEH_A: 2.5}       # channel-emulator setup time
+  modulation_factor: {BPSK: 1.0, QPSK: 1.0, QAM16: 1.2, QAM64: 1.4}
+  cfo_extra_s: 8                                            # signal-generator retune
+
+# Regression history simulation (a "build" = one firmware/RTL drop of the modem)
+regression:
+  n_builds: 100
+  baseline_builds: 15          # first builds are known-good (used to learn "normal")
+  fault_probability: 0.45      # chance a later build carries a real bug
+  severity_range: [0.05, 1.0]   # low severities = "quiet" bugs that barely break limits
+  quick_n_builds: 45           # used with --quick
+
+# Software modules of the modem. Every build changes some of them; a buggy
+# build always touches the module that owns the bug.
+modules: [tx_framer, tx_rf, rx_frontend, rx_sync, rx_chest, rx_demod, scheduler, telemetry]
+fault_module:
+  short_cp: tx_framer
+  iq_imbalance: tx_rf
+  adc_clipping: rx_frontend
+  cfo_uncorrected: rx_sync
+  timing_offset: rx_sync
+  stale_channel: rx_chest
+
+seed: 2026
